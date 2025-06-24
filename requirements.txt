@@ -1,0 +1,13 @@
+# Windows主题切换器依赖
+# 本项目主要使用Python标准库，无需额外依赖
+
+# 如果需要打包为EXE文件，请安装：
+# pyinstaller>=5.0
+
+# 注意：以下模块为Python标准库，无需单独安装
+# - tkinter (GUI框架)
+# - subprocess (执行外部脚本)
+# - winreg (Windows注册表操作)
+# - ctypes (调用Windows API)
+# - threading (多线程支持)
+# - sys, os, time (系统和时间操作)
