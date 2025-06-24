@@ -121,30 +121,78 @@ class WindowsThemeSwitcher:
                                          command=self.execute_restart_explorer)
         self.restart_now_btn.pack(pady=(10, 0))
 
+
+
     def bind_events(self):
+        """绑定事件 - 移除Enter/Leave事件，统一由全局轮询管理"""
         self.root.bind('<Button-1>', self.start_drag)
         self.root.bind('<B1-Motion>', self.on_drag)
         self.root.bind('<ButtonRelease-1>', self.end_drag)
-        self.root.bind('<Enter>', self.on_mouse_enter)
-        self.root.bind('<Leave>', self.on_mouse_leave)
         for widget in self.root.winfo_children():
             self.bind_drag_events(widget)
 
     def bind_drag_events(self, widget):
+        """递归绑定拖拽事件到所有子控件"""
         widget.bind('<Button-1>', self.start_drag)
         widget.bind('<B1-Motion>', self.on_drag)
         widget.bind('<ButtonRelease-1>', self.end_drag)
-        widget.bind('<Enter>', self.on_mouse_enter)
-        widget.bind('<Leave>', self.on_mouse_leave)
         for child in widget.winfo_children():
             self.bind_drag_events(child)
 
-    def on_mouse_enter(self, event):
+    def should_show_window(self, mouse_x, mouse_y):
+        """检查是否应该显示窗口 - 精准区域触发"""
+        if not self.is_hidden:
+            return False
+            
+        try:
+            window_x = self.root.winfo_x()
+            window_y = self.root.winfo_y()
+            window_width = self.root.winfo_width()
+            window_height = self.root.winfo_height()
+            screen_width = self.root.winfo_screenwidth()
+        except:
+            return False
+            
+        if self.dock_side == 'left':
+            return (mouse_x < self.DOCK_OFFSET) and \
+                   (window_y < mouse_y < window_y + window_height)
+                   
+        elif self.dock_side == 'right':
+            return (mouse_x > screen_width - self.DOCK_OFFSET) and \
+                   (window_y < mouse_y < window_y + window_height)
+                   
+        elif self.dock_side == 'top':
+            return (mouse_y < self.DOCK_OFFSET) and \
+                   (window_x < mouse_x < window_x + window_width)
+                   
+        return False
+
+    def should_hide_window(self, mouse_x, mouse_y):
+        """检查是否应该隐藏窗口 - 鼠标离开窗口区域"""
+        if self.is_hidden or not self.is_docked:
+            return False
+            
+        try:
+            window_x = self.root.winfo_x()
+            window_y = self.root.winfo_y()
+            window_width = self.root.winfo_width()
+            window_height = self.root.winfo_height()
+        except:
+            return False
+            
+        # 检查鼠标是否在窗口区域外
+        mouse_outside = not (window_x <= mouse_x <= window_x + window_width and 
+                           window_y <= mouse_y <= window_y + window_height)
+        
+        return mouse_outside
+
+    def start_hide_timer_unified(self):
+        """统一的隐藏计时器启动方法"""
+        # 取消之前的计时器
         if self.hide_timer_id:
             self.root.after_cancel(self.hide_timer_id)
-            self.hide_timer_id = None
-
-    def on_mouse_leave(self, event):
+            
+        # 启动新的隐藏计时器
         if self.is_docked and not self.is_hidden:
             self.hide_timer_id = self.root.after(500, self.hide_window)
 
@@ -200,6 +248,7 @@ class WindowsThemeSwitcher:
             self.hide_timer_id = None
 
     def hide_window(self):
+        """隐藏窗口 - 统一管理版本"""
         if not self.is_docked:
             return
         window_width = self.root.winfo_width()
@@ -215,9 +264,12 @@ class WindowsThemeSwitcher:
             self.root.geometry(f"+{current_x}+{-window_height + self.DOCK_OFFSET}")
         self.is_hidden = True
         self.create_dock_indicator()
-        self.start_mouse_check()
+        # 隐藏后启动鼠标检测，用于检测何时显示
+        if not self.mouse_check_running:
+            self.start_mouse_check()
 
     def show_window(self):
+        """显示窗口 - 统一管理版本"""
         if not self.is_hidden:
             return
         screen_width = self.root.winfo_screenwidth()
@@ -232,9 +284,12 @@ class WindowsThemeSwitcher:
             self.root.geometry(f"+{current_x}+0")
         self.is_hidden = False
         self.remove_dock_indicator()
-        self.stop_mouse_check()
+        # 显示后继续鼠标检测，用于检测何时隐藏
+        if not self.mouse_check_running:
+            self.start_mouse_check()
 
     def start_mouse_check(self):
+        """启动鼠标检测线程 - 统一管理显示和隐藏逻辑"""
         if self.mouse_check_running:
             return
         self.mouse_check_running = True
@@ -242,29 +297,37 @@ class WindowsThemeSwitcher:
         self.mouse_check_thread.start()
 
     def stop_mouse_check(self):
+        """停止鼠标检测线程"""
         self.mouse_check_running = False
 
     def mouse_check_loop(self):
-        while self.mouse_check_running and self.is_hidden:
+        """鼠标检测循环 - 统一处理显示和隐藏逻辑"""
+        while self.mouse_check_running and self.is_docked:
             try:
                 mouse_x, mouse_y = self.get_mouse_position()
-                if self.should_show_window(mouse_x, mouse_y):
-                    self.root.after(0, self.show_window)
-                    break
+                
+                if self.is_hidden:
+                    # 窗口隐藏时：检测是否应该显示
+                    if self.should_show_window(mouse_x, mouse_y):
+                        self.root.after(0, self.show_window)
+                        # 显示后继续检测，不退出循环
+                else:
+                    # 窗口显示时：检测是否应该隐藏
+                    if self.should_hide_window(mouse_x, mouse_y):
+                        # 只有在没有活动计时器时才启动新的隐藏计时器
+                        if not self.hide_timer_id:
+                            self.root.after(0, self.start_hide_timer_unified)
+                    else:
+                        # 鼠标回到窗口内，取消隐藏计时器
+                        if self.hide_timer_id:
+                            self.root.after_cancel(self.hide_timer_id)
+                            self.hide_timer_id = None
+                        
                 time.sleep(0.1)
             except:
                 break
 
-    def should_show_window(self, mouse_x, mouse_y):
-        screen_width = self.root.winfo_screenwidth()
-        trigger_zone = 10
-        if self.dock_side == 'left':
-            return mouse_x <= trigger_zone
-        elif self.dock_side == 'right':
-            return mouse_x >= screen_width - trigger_zone
-        elif self.dock_side == 'top':
-            return mouse_y <= trigger_zone
-        return False
+
 
     def get_mouse_position(self):
         point = wintypes.POINT()
