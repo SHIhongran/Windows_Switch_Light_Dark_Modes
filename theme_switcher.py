@@ -8,6 +8,8 @@ import ctypes
 from ctypes import wintypes
 import threading
 import time
+import configparser
+from datetime import datetime
 
 class WindowsThemeSwitcher:
     def __init__(self):
@@ -31,7 +33,7 @@ class WindowsThemeSwitcher:
         }
 
         self.root.title("Windows主题切换器")
-        self.root.geometry("180x240")
+        self.root.geometry("180x280")
         self.root.resizable(False, False)
         self.root.overrideredirect(True)
 
@@ -48,6 +50,16 @@ class WindowsThemeSwitcher:
         # UI锁定相关变量
         self.ui_mask = None
         self.interactive_widgets = []
+        
+        # 定时切换相关变量
+        self.is_timed_switching_enabled = False
+        self.dark_time = "20:00"
+        self.light_time = "06:00"
+        self.last_auto_switch_minute = None
+        self.config_file = "config.ini"
+        
+        # 加载配置
+        self.load_config()
 
         # 显示启动画面
         self.show_splash_screen()
@@ -97,7 +109,8 @@ class WindowsThemeSwitcher:
                                           text="切换后重启资源管理器",
                                           variable=self.restart_explorer,
                                           font=('Microsoft YaHei UI', 8),
-                                          wraplength=140)
+                                          wraplength=140,
+                                          command=self.save_config)
         self.restart_check.pack()
 
         self.restart_now_btn = tk.Button(self.content_frame, text="立即重启资源管理器",
@@ -107,29 +120,89 @@ class WindowsThemeSwitcher:
                                          command=self.execute_restart_explorer_with_lock)
         self.restart_now_btn.pack(pady=(10, 0))
         
+        # 创建定时切换功能模块
+        self.create_timer_module()
+        
         # 收集可交互控件
-        self.interactive_widgets = [self.close_btn, self.toggle_btn, self.restart_check, self.restart_now_btn]
+        self.interactive_widgets = [self.close_btn, self.toggle_btn, self.restart_check, self.restart_now_btn,
+                                   self.timer_toggle_btn, self.dark_time_label, self.light_time_label,
+                                   self.dark_icon_label, self.light_icon_label]
         
         # 创建UI蒙版（默认隐藏）
         self.create_ui_mask()
+    
+    def create_timer_module(self):
+        """创建定时切换功能模块"""
+        # 创建定时切换功能容器
+        self.timer_frame = tk.Frame(self.content_frame)
+        self.timer_frame.pack(pady=(15, 0), fill='x')
+        
+        # 启用/禁用开关按钮
+        self.timer_toggle_btn = tk.Button(self.timer_frame, 
+                                         text="×" if not self.is_timed_switching_enabled else "√",
+                                         font=('Arial', 10, 'bold'),
+                                         width=3, height=1,
+                                         border=0, cursor='hand2',
+                                         command=self.toggle_timer_enabled)
+        self.timer_toggle_btn.pack(side='left', padx=(0, 12))
+        
+        # 暗色时间设置区域
+        self.dark_time_frame = tk.Frame(self.timer_frame, cursor='hand2')
+        self.dark_time_frame.pack(side='left', padx=(0, 8))
+        self.dark_time_frame.bind('<Button-1>', lambda e: self.open_time_picker('dark'))
+        
+        self.dark_time_label = tk.Label(self.dark_time_frame, 
+                                       text=self.dark_time,
+                                       font=('Microsoft YaHei UI', 8),
+                                       cursor='hand2')
+        self.dark_time_label.pack(side='left')
+        self.dark_time_label.bind('<Button-1>', lambda e: self.open_time_picker('dark'))
+        
+        self.dark_icon_label = tk.Label(self.dark_time_frame, 
+                                       text="🕒",
+                                       font=('Arial', 8),
+                                       cursor='hand2')
+        self.dark_icon_label.pack(side='left', padx=(3, 0))
+        self.dark_icon_label.bind('<Button-1>', lambda e: self.open_time_picker('dark'))
+        
+        # 浅色时间设置区域
+        self.light_time_frame = tk.Frame(self.timer_frame, cursor='hand2')
+        self.light_time_frame.pack(side='left', padx=(8, 0))
+        self.light_time_frame.bind('<Button-1>', lambda e: self.open_time_picker('light'))
+        
+        self.light_time_label = tk.Label(self.light_time_frame, 
+                                        text=self.light_time,
+                                        font=('Microsoft YaHei UI', 8),
+                                        cursor='hand2')
+        self.light_time_label.pack(side='left')
+        self.light_time_label.bind('<Button-1>', lambda e: self.open_time_picker('light'))
+        
+        self.light_icon_label = tk.Label(self.light_time_frame, 
+                                        text="🕒",
+                                        font=('Arial', 8),
+                                        cursor='hand2')
+        self.light_icon_label.pack(side='left', padx=(3, 0))
+        self.light_icon_label.bind('<Button-1>', lambda e: self.open_time_picker('light'))
+        
+        # 启动定时检查器
+        self.schedule_checker()
 
 
 
     def bind_events(self):
-        """绑定事件 - 移除Enter/Leave事件，统一由全局轮询管理"""
-        self.root.bind('<Button-1>', self.start_drag)
-        self.root.bind('<B1-Motion>', self.on_drag)
-        self.root.bind('<ButtonRelease-1>', self.end_drag)
-        for widget in self.root.winfo_children():
-            self.bind_drag_events(widget)
-
-    def bind_drag_events(self, widget):
-        """递归绑定拖拽事件到所有子控件"""
-        widget.bind('<Button-1>', self.start_drag)
-        widget.bind('<B1-Motion>', self.on_drag)
-        widget.bind('<ButtonRelease-1>', self.end_drag)
-        for child in widget.winfo_children():
-            self.bind_drag_events(child)
+        """绑定事件 - 精准绑定拖动事件到背景容器"""
+        # 只为背景容器和非交互控件绑定拖动事件
+        self.main_frame.bind('<Button-1>', self.start_drag)
+        self.main_frame.bind('<B1-Motion>', self.on_drag)
+        self.main_frame.bind('<ButtonRelease-1>', self.end_drag)
+        
+        self.content_frame.bind('<Button-1>', self.start_drag)
+        self.content_frame.bind('<B1-Motion>', self.on_drag)
+        self.content_frame.bind('<ButtonRelease-1>', self.end_drag)
+        
+        self.status_label.bind('<Button-1>', self.start_drag)
+        self.status_label.bind('<B1-Motion>', self.on_drag)
+        self.status_label.bind('<ButtonRelease-1>', self.end_drag)
 
     def should_show_window(self, mouse_x, mouse_y):
         """检查是否应该显示窗口 - 精准区域触发"""
@@ -387,6 +460,17 @@ class WindowsThemeSwitcher:
         self.restart_now_btn.config(bg=colors['btn_bg'], fg=colors['fg'], activebackground=colors['btn_active_bg'], relief=tk.FLAT)
         self.close_btn.config(bg=colors['bg'], fg=colors['fg'], activebackground=colors['btn_active_bg'])
         
+        # 更新定时切换模块颜色
+        if hasattr(self, 'timer_frame'):
+            self.timer_frame.config(bg=colors['bg'])
+            self.timer_toggle_btn.config(bg=colors['btn_bg'], fg=colors['fg'], activebackground=colors['btn_active_bg'], relief=tk.FLAT)
+            self.dark_time_frame.config(bg=colors['bg'])
+            self.light_time_frame.config(bg=colors['bg'])
+            self.dark_time_label.config(bg=colors['bg'], fg=colors['fg'])
+            self.light_time_label.config(bg=colors['bg'], fg=colors['fg'])
+            self.dark_icon_label.config(bg=colors['bg'])
+            self.light_icon_label.config(bg=colors['bg'])
+        
         # 更新蒙版颜色
         self.update_ui_mask_color()
 
@@ -454,7 +538,7 @@ class WindowsThemeSwitcher:
         title_label.pack(pady=(60, 20))
         
         # 版本信息
-        version_label = tk.Label(main_frame, text="版本 1.5", 
+        version_label = tk.Label(main_frame, text="版本 1.6.2", 
                                 font=('Microsoft YaHei UI', 10),
                                 bg=bg_color, fg=fg_color)
         version_label.pack(pady=(0, 30))
@@ -571,6 +655,190 @@ class WindowsThemeSwitcher:
         
         # 3秒后解锁UI
         self.root.after(3000, self.unlock_ui)
+    
+    def load_config(self):
+        """加载配置文件"""
+        config = configparser.ConfigParser()
+        try:
+            config.read(self.config_file, encoding='utf-8')
+            if 'TimerSettings' in config:
+                self.is_timed_switching_enabled = config.getboolean('TimerSettings', 'enabled', fallback=False)
+                self.dark_time = config.get('TimerSettings', 'dark_time', fallback='20:00')
+                self.light_time = config.get('TimerSettings', 'light_time', fallback='06:00')
+                restart_on_switch = config.getboolean('TimerSettings', 'restart_on_switch', fallback=True)
+                self.restart_explorer.set(restart_on_switch)
+        except Exception:
+            # 如果配置文件不存在或损坏，使用默认值
+            self.is_timed_switching_enabled = False
+            self.dark_time = "20:00"
+            self.light_time = "06:00"
+            self.restart_explorer.set(True)
+    
+    def save_config(self):
+        """保存配置文件"""
+        config = configparser.ConfigParser()
+        config['TimerSettings'] = {
+            'enabled': str(self.is_timed_switching_enabled),
+            'dark_time': self.dark_time,
+            'light_time': self.light_time,
+            'restart_on_switch': str(self.restart_explorer.get())
+        }
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                config.write(f)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+    
+    def toggle_timer_enabled(self):
+        """切换定时功能启用状态"""
+        self.is_timed_switching_enabled = not self.is_timed_switching_enabled
+        self.timer_toggle_btn.config(text="√" if self.is_timed_switching_enabled else "×")
+        self.save_config()
+    
+    def open_time_picker(self, time_type):
+        """打开时间选择器"""
+        # 创建模态对话框
+        picker = tk.Toplevel(self.root)
+        picker.title(f"设置{'暗色' if time_type == 'dark' else '浅色'}模式时间")
+        picker.geometry("250x150")
+        picker.resizable(False, False)
+        picker.transient(self.root)
+        picker.grab_set()
+        
+        # 居中显示
+        picker.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - picker.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - picker.winfo_height()) // 2
+        picker.geometry(f"+{x}+{y}")
+        
+        # 应用主题颜色
+        theme = self.get_current_theme()
+        colors = self.dark_theme_colors if theme == 'dark' else self.light_theme_colors
+        picker.config(bg=colors['bg'])
+        
+        # 获取当前时间
+        current_time = self.dark_time if time_type == 'dark' else self.light_time
+        hour, minute = current_time.split(':')
+        
+        # 创建UI
+        main_frame = tk.Frame(picker, bg=colors['bg'])
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # 标题
+        title_label = tk.Label(main_frame, 
+                              text=f"设置{'暗色' if time_type == 'dark' else '浅色'}模式时间",
+                              font=('Microsoft YaHei UI', 10, 'bold'),
+                              bg=colors['bg'], fg=colors['fg'])
+        title_label.pack(pady=(0, 15))
+        
+        # 时间选择区域
+        time_frame = tk.Frame(main_frame, bg=colors['bg'])
+        time_frame.pack(pady=(0, 15))
+        
+        # 小时选择
+        hour_label = tk.Label(time_frame, text="小时:", 
+                             font=('Microsoft YaHei UI', 9),
+                             bg=colors['bg'], fg=colors['fg'])
+        hour_label.grid(row=0, column=0, padx=(0, 5))
+        
+        hour_var = tk.StringVar(value=hour)
+        hour_combo = ttk.Combobox(time_frame, textvariable=hour_var, 
+                                 values=[f"{i:02d}" for i in range(24)],
+                                 width=5, state="readonly")
+        hour_combo.grid(row=0, column=1, padx=(0, 15))
+        
+        # 分钟选择
+        minute_label = tk.Label(time_frame, text="分钟:", 
+                               font=('Microsoft YaHei UI', 9),
+                               bg=colors['bg'], fg=colors['fg'])
+        minute_label.grid(row=0, column=2, padx=(0, 5))
+        
+        minute_var = tk.StringVar(value=minute)
+        minute_combo = ttk.Combobox(time_frame, textvariable=minute_var,
+                                   values=[f"{i:02d}" for i in range(60)],
+                                   width=5, state="readonly")
+        minute_combo.grid(row=0, column=3)
+        
+        # 按钮区域
+        button_frame = tk.Frame(main_frame, bg=colors['bg'])
+        button_frame.pack()
+        
+        def confirm_time():
+            new_time = f"{hour_var.get()}:{minute_var.get()}"
+            if time_type == 'dark':
+                self.dark_time = new_time
+                self.dark_time_label.config(text=new_time)
+            else:
+                self.light_time = new_time
+                self.light_time_label.config(text=new_time)
+            self.save_config()
+            picker.destroy()
+        
+        def cancel_time():
+            picker.destroy()
+        
+        confirm_btn = tk.Button(button_frame, text="确认",
+                               font=('Microsoft YaHei UI', 9),
+                               bg=colors['btn_bg'], fg=colors['fg'],
+                               activebackground=colors['btn_active_bg'],
+                               border=0, cursor='hand2',
+                               padx=15, pady=5,
+                               command=confirm_time)
+        confirm_btn.pack(side='left', padx=(0, 10))
+        
+        cancel_btn = tk.Button(button_frame, text="取消",
+                              font=('Microsoft YaHei UI', 9),
+                              bg=colors['btn_bg'], fg=colors['fg'],
+                              activebackground=colors['btn_active_bg'],
+                              border=0, cursor='hand2',
+                              padx=15, pady=5,
+                              command=cancel_time)
+        cancel_btn.pack(side='left')
+    
+    def schedule_checker(self):
+        """后台调度检查器"""
+        try:
+            # 检查是否启用定时切换
+            if self.is_timed_switching_enabled:
+                current_time = datetime.now()
+                current_hour_minute = f"{current_time.hour:02d}:{current_time.minute:02d}"
+                current_minute_key = f"{current_time.hour:02d}:{current_time.minute:02d}"
+                
+                # 防止同一分钟内重复切换
+                if self.last_auto_switch_minute != current_minute_key:
+                    current_theme = self.get_current_theme()
+                    
+                    # 检查是否需要切换到暗色模式
+                    if (current_hour_minute == self.dark_time and 
+                        current_theme == 'light'):
+                        self.execute_auto_theme_toggle()
+                        self.last_auto_switch_minute = current_minute_key
+                    
+                    # 检查是否需要切换到浅色模式
+                    elif (current_hour_minute == self.light_time and 
+                          current_theme == 'dark'):
+                        self.execute_auto_theme_toggle()
+                        self.last_auto_switch_minute = current_minute_key
+        except Exception as e:
+            print(f"定时检查器错误: {e}")
+        
+        # 每60秒检查一次
+        self.root.after(60000, self.schedule_checker)
+    
+    def execute_auto_theme_toggle(self):
+        """执行自动主题切换（智能判断是否重启资源管理器）"""
+        try:
+            # 根据复选框状态选择执行的脚本
+            if self.restart_explorer.get():
+                script_path = self.resource_path("toggle_and_restart.bat")
+            else:
+                script_path = self.resource_path("toggle_theme.bat")
+            
+            subprocess.run([script_path], creationflags=subprocess.CREATE_NO_WINDOW, check=True)
+            # 延迟更新状态
+            self.root.after(500, self.update_theme_status)
+        except Exception as e:
+            print(f"自动切换失败: {e}")
 
     def run(self):
         self.root.mainloop()
