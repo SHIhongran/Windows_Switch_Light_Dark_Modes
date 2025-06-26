@@ -308,14 +308,5 @@ python theme_switcher.py
 - 感谢 Python Tkinter 社区
 - 感谢 Windows API 文档
 
-## 📞 联系方式
-
-如果您有任何问题或建议，请通过以下方式联系：
-
-- 📧 Email: your.email@example.com
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/theme-switcher/issues)
-- 💬 Discussions: [GitHub Discussions](https://github.com/yourusername/theme-switcher/discussions)
-
----
 
 ⭐ 如果这个项目对您有帮助，请给它一个星标！
