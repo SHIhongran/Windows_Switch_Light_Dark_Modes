@@ -1,6 +1,18 @@
-- # Windows 主题切换器
+- # Windows 系统主题切换器
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.6+-green.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey.svg)
 
 一个简洁优雅的 Windows 桌面应用程序，用于快速切换系统的浅色和暗色主题。
+
+## 📸 预览
+
+- 🎨 现代化的无边框界面设计
+- 🚀 专业的启动画面体验
+- 🔄 一键快速主题切换
+- 📌 智能边缘吸附功能
+- 🎯 自动隐藏与显示
 
 ## 🆕 v1.5 最新更新
 
@@ -236,3 +248,56 @@ A: 将鼠标移动到屏幕对应边缘的最边缘位置。
 **Q: 启动画面颜色显示异常？** (v1.5)
 
 A: 启动画面会自动适配系统主题，如显示异常请检查系统主题设置。
+
+## 🤝 贡献指南
+
+欢迎贡献代码！请遵循以下步骤：
+
+1. Fork 本仓库
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
+
+### 开发环境设置
+
+```bash
+# 克隆仓库
+git clone https://github.com/yourusername/theme-switcher.git
+cd theme-switcher
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行程序
+python theme_switcher.py
+```
+
+### 代码规范
+
+- 使用 4 个空格缩进
+- 遵循 PEP 8 编码规范
+- 添加适当的注释和文档字符串
+- 确保新功能有相应的测试
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 🙏 致谢
+
+- 感谢所有贡献者的支持
+- 感谢 Python Tkinter 社区
+- 感谢 Windows API 文档
+
+## 📞 联系方式
+
+如果您有任何问题或建议，请通过以下方式联系：
+
+- 📧 Email: your.email@example.com
+- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/theme-switcher/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/yourusername/theme-switcher/discussions)
+
+---
+
+⭐ 如果这个项目对您有帮助，请给它一个星标！
