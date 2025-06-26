@@ -12,6 +12,9 @@ import time
 class WindowsThemeSwitcher:
     def __init__(self):
         self.root = tk.Tk()
+        
+        # 立即隐藏主窗口
+        self.root.withdraw()
 
         # 定义色彩系统
         self.light_theme_colors = {
@@ -41,35 +44,18 @@ class WindowsThemeSwitcher:
         self.restart_explorer = tk.BooleanVar(value=True)
         self.dock_indicator = None
         self.DOCK_OFFSET = 5
+        
+        # UI锁定相关变量
+        self.ui_mask = None
+        self.interactive_widgets = []
 
+        # 显示启动画面
+        self.show_splash_screen()
+        
         self.setup_window_style()
         self.create_ui()
         self.bind_events()
         self.update_theme_status()
-        # self.center_window() # 删除此行
-
-        # ---- 实现边缘启动逻辑 ----
-        # 1. 立即设置初始停靠状态
-        self.dock_side = 'right'  # 设置默认停靠在右侧
-        self.is_docked = True
-        self.is_hidden = True       # 立即将状态标记为隐藏
-
-        # 2. 计算并设置边缘位置
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        # X坐标：屏幕宽度 - 可见触发条的宽度
-        x_pos = screen_width - self.DOCK_OFFSET
-        
-        # Y坐标：屏幕高度的一半 - 窗口高度的一半
-        y_pos = (screen_height // 2) - (self.root.winfo_height() // 2)
-
-        # 应用计算出的初始位置
-        self.root.geometry(f'+{int(x_pos)}+{int(y_pos)}')
-
-        # 3. 创建指示器并启动鼠标检测
-        self.create_dock_indicator()
-        self.start_mouse_check()
 
     def resource_path(self, relative_path):
         try:
@@ -104,7 +90,7 @@ class WindowsThemeSwitcher:
                                    font=('Microsoft YaHei UI', 10, 'bold'),
                                    border=0, cursor='hand2',
                                    padx=25, pady=10,
-                                   command=self.execute_theme_toggle)
+                                   command=self.execute_theme_toggle_with_lock)
         self.toggle_btn.pack(pady=(0, 15))
 
         self.restart_check = tk.Checkbutton(self.content_frame,
@@ -118,8 +104,14 @@ class WindowsThemeSwitcher:
                                          font=('Microsoft YaHei UI', 9),
                                          border=0, cursor='hand2',
                                          padx=10, pady=5,
-                                         command=self.execute_restart_explorer)
+                                         command=self.execute_restart_explorer_with_lock)
         self.restart_now_btn.pack(pady=(10, 0))
+        
+        # 收集可交互控件
+        self.interactive_widgets = [self.close_btn, self.toggle_btn, self.restart_check, self.restart_now_btn]
+        
+        # 创建UI蒙版（默认隐藏）
+        self.create_ui_mask()
 
 
 
@@ -394,6 +386,9 @@ class WindowsThemeSwitcher:
         self.restart_check.config(bg=colors['bg'], fg=colors['fg'], selectcolor=colors['bg'], activebackground=colors['bg'], activeforeground=colors['fg'])
         self.restart_now_btn.config(bg=colors['btn_bg'], fg=colors['fg'], activebackground=colors['btn_active_bg'], relief=tk.FLAT)
         self.close_btn.config(bg=colors['bg'], fg=colors['fg'], activebackground=colors['btn_active_bg'])
+        
+        # 更新蒙版颜色
+        self.update_ui_mask_color()
 
     def update_theme_status(self):
         theme = self.get_current_theme()
@@ -426,6 +421,156 @@ class WindowsThemeSwitcher:
             self.root.after(500, self.update_theme_status)
         except Exception as e:
             self.status_label.config(text=f"切换失败: {e}")
+    
+    def show_splash_screen(self):
+        """显示启动画面"""
+        # 创建启动画面窗口
+        self.splash = tk.Toplevel()
+        self.splash.overrideredirect(True)
+        self.splash.geometry("400x225")
+        
+        # 检测当前主题并设置背景色
+        current_theme = self.get_current_theme()
+        bg_color = '#f5f7fc' if current_theme == 'light' else '#17191f'
+        fg_color = '#333333' if current_theme == 'light' else '#e0e0e0'
+        
+        self.splash.configure(bg=bg_color)
+        
+        # 计算屏幕中央位置
+        screen_width = self.splash.winfo_screenwidth()
+        screen_height = self.splash.winfo_screenheight()
+        x = (screen_width - 400) // 2
+        y = (screen_height - 225) // 2
+        self.splash.geometry(f"400x225+{x}+{y}")
+        
+        # 创建内容
+        main_frame = tk.Frame(self.splash, bg=bg_color)
+        main_frame.pack(fill='both', expand=True)
+        
+        # 程序标题
+        title_label = tk.Label(main_frame, text="Windows主题切换器", 
+                              font=('Microsoft YaHei UI', 16, 'bold'),
+                              bg=bg_color, fg=fg_color)
+        title_label.pack(pady=(60, 20))
+        
+        # 版本信息
+        version_label = tk.Label(main_frame, text="版本 1.5", 
+                                font=('Microsoft YaHei UI', 10),
+                                bg=bg_color, fg=fg_color)
+        version_label.pack(pady=(0, 30))
+        
+        # 初始化提示
+        status_label = tk.Label(main_frame, text="正在初始化...", 
+                               font=('Microsoft YaHei UI', 9),
+                               bg=bg_color, fg=fg_color)
+        status_label.pack(pady=(0, 40))
+        
+        # 2秒后显示主窗口
+        self.splash.after(2000, self.show_main_window)
+    
+    def show_main_window(self):
+        """销毁启动画面并显示主程序"""
+        # 销毁启动画面
+        if hasattr(self, 'splash'):
+            self.splash.destroy()
+        
+        # ---- 实现边缘启动逻辑 ----
+        # 1. 立即设置初始停靠状态
+        self.dock_side = 'right'  # 设置默认停靠在右侧
+        self.is_docked = True
+        self.is_hidden = True       # 立即将状态标记为隐藏
+
+        # 2. 计算并设置边缘位置
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # X坐标：屏幕宽度 - 可见触发条的宽度
+        x_pos = screen_width - self.DOCK_OFFSET
+        
+        # Y坐标：屏幕高度的一半 - 窗口高度的一半
+        y_pos = (screen_height // 2) - (240 // 2)  # 使用固定高度240
+
+        # 显示主窗口并应用计算出的初始位置
+        self.root.deiconify()
+        self.root.geometry(f'+{int(x_pos)}+{int(y_pos)}')
+
+        # 3. 创建指示器并启动鼠标检测
+        self.create_dock_indicator()
+        self.start_mouse_check()
+    
+    def create_ui_mask(self):
+        """创建UI蒙版"""
+        self.ui_mask = tk.Frame(self.main_frame)
+        # 默认隐藏蒙版
+        self.ui_mask.place_forget()
+    
+    def update_ui_mask_color(self):
+        """根据当前主题更新蒙版颜色"""
+        if self.ui_mask:
+            theme = self.get_current_theme()
+            # 使用较浅的颜色来模拟半透明效果
+            mask_color = '#f0f0f0' if theme == 'light' else '#404040'
+            self.ui_mask.configure(bg=mask_color)
+    
+    def lock_ui(self):
+        """锁定UI"""
+        # 禁用所有可交互控件
+        for widget in self.interactive_widgets:
+            widget.configure(state=tk.DISABLED)
+        
+        # 更新蒙版颜色并显示
+        self.update_ui_mask_color()
+        self.ui_mask.place(relwidth=1, relheight=1)
+        self.ui_mask.lift()
+        
+        # 添加处理中提示标签
+        if not hasattr(self, 'processing_label'):
+            self.processing_label = tk.Label(self.ui_mask, text="处理中...", 
+                                           font=('Microsoft YaHei UI', 10),
+                                           bg=self.ui_mask.cget('bg'))
+        
+        theme = self.get_current_theme()
+        label_fg = '#666666' if theme == 'light' else '#cccccc'
+        self.processing_label.configure(fg=label_fg, bg=self.ui_mask.cget('bg'))
+        self.processing_label.place(relx=0.5, rely=0.5, anchor='center')
+    
+    def unlock_ui(self):
+        """解锁UI"""
+        # 启用所有可交互控件
+        for widget in self.interactive_widgets:
+            widget.configure(state=tk.NORMAL)
+        
+        # 隐藏处理中标签
+        if hasattr(self, 'processing_label'):
+            self.processing_label.place_forget()
+        
+        # 隐藏蒙版
+        self.ui_mask.place_forget()
+    
+    def execute_theme_toggle_with_lock(self):
+        """带锁定的主题切换"""
+        # 立即锁定UI
+        self.lock_ui()
+        
+        # 判断锁定时间
+        lock_duration = 3000 if self.restart_explorer.get() else 500
+        
+        # 异步执行脚本
+        self.root.after(100, self.execute_theme_toggle)
+        
+        # 按预设时长解锁UI
+        self.root.after(lock_duration, self.unlock_ui)
+    
+    def execute_restart_explorer_with_lock(self):
+        """带锁定的重启资源管理器"""
+        # 立即锁定UI
+        self.lock_ui()
+        
+        # 异步执行脚本
+        self.root.after(100, self.execute_restart_explorer)
+        
+        # 3秒后解锁UI
+        self.root.after(3000, self.unlock_ui)
 
     def run(self):
         self.root.mainloop()
