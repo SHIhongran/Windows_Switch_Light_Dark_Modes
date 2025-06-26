@@ -480,7 +480,7 @@ class WindowsThemeSwitcher:
         self.is_docked = True
         self.is_hidden = True       # 立即将状态标记为隐藏
 
-        # 2. 计算并设置边缘位置
+        # 2. 计算并预设边缘位置（在显示窗口之前）
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
@@ -490,11 +490,11 @@ class WindowsThemeSwitcher:
         # Y坐标：屏幕高度的一半 - 窗口高度的一半
         y_pos = (screen_height // 2) - (240 // 2)  # 使用固定高度240
 
-        # 显示主窗口并应用计算出的初始位置
-        self.root.deiconify()
+        # 3. 先设置位置，再显示窗口（避免窗口闪烁）
         self.root.geometry(f'+{int(x_pos)}+{int(y_pos)}')
+        self.root.deiconify()
 
-        # 3. 创建指示器并启动鼠标检测
+        # 4. 创建指示器并启动鼠标检测
         self.create_dock_indicator()
         self.start_mouse_check()
     
