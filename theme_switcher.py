@@ -57,6 +57,7 @@ class WindowsThemeSwitcher:
         self.light_time = "06:00"
         self.last_auto_switch_minute = None
         self.config_file = "config.ini"
+        self.schedule_timer_id = None  # 新增调度器计时器ID
         
         # 加载配置
         self.load_config()
@@ -183,9 +184,6 @@ class WindowsThemeSwitcher:
                                         cursor='hand2')
         self.light_icon_label.pack(side='left', padx=(3, 0))
         self.light_icon_label.bind('<Button-1>', lambda e: self.open_time_picker('light'))
-        
-        # 启动定时检查器
-        self.schedule_checker()
 
 
 
@@ -538,7 +536,7 @@ class WindowsThemeSwitcher:
         title_label.pack(pady=(60, 20))
         
         # 版本信息
-        version_label = tk.Label(main_frame, text="版本 1.6.2", 
+        version_label = tk.Label(main_frame, text="版本 1.6.3", 
                                 font=('Microsoft YaHei UI', 10),
                                 bg=bg_color, fg=fg_color)
         version_label.pack(pady=(0, 30))
@@ -578,9 +576,10 @@ class WindowsThemeSwitcher:
         self.root.geometry(f'+{int(x_pos)}+{int(y_pos)}')
         self.root.deiconify()
 
-        # 4. 创建指示器并启动鼠标检测
+        # 4. 创建指示器并启动新的调度器
         self.create_dock_indicator()
         self.start_mouse_check()
+        self.schedule_next_event()
     
     def create_ui_mask(self):
         """创建UI蒙版"""
@@ -694,6 +693,7 @@ class WindowsThemeSwitcher:
         self.is_timed_switching_enabled = not self.is_timed_switching_enabled
         self.timer_toggle_btn.config(text="√" if self.is_timed_switching_enabled else "×")
         self.save_config()
+        self.schedule_next_event()
     
     def open_time_picker(self, time_type):
         """打开时间选择器"""
@@ -772,6 +772,7 @@ class WindowsThemeSwitcher:
                 self.light_time = new_time
                 self.light_time_label.config(text=new_time)
             self.save_config()
+            self.root.after(100, self.schedule_next_event)
             picker.destroy()
         
         def cancel_time():
@@ -795,36 +796,89 @@ class WindowsThemeSwitcher:
                               command=cancel_time)
         cancel_btn.pack(side='left')
     
-    def schedule_checker(self):
-        """后台调度检查器"""
+    def schedule_next_event(self):
+        """
+        高效渐进式调度器。
+        计算到下一个事件的精确时间，并根据距离动态设置下一次检查的间隔。
+        """
+        # 1. 取消任何可能存在的旧计时器
+        if hasattr(self, 'schedule_timer_id') and self.schedule_timer_id:
+            self.root.after_cancel(self.schedule_timer_id)
+            self.schedule_timer_id = None
+
+        # 2. 检查功能是否启用
+        if not self.is_timed_switching_enabled:
+            return
+
+        # 3. 获取并转换时间对象
+        now = datetime.now()
         try:
-            # 检查是否启用定时切换
-            if self.is_timed_switching_enabled:
-                current_time = datetime.now()
-                current_hour_minute = f"{current_time.hour:02d}:{current_time.minute:02d}"
-                current_minute_key = f"{current_time.hour:02d}:{current_time.minute:02d}"
-                
-                # 防止同一分钟内重复切换
-                if self.last_auto_switch_minute != current_minute_key:
-                    current_theme = self.get_current_theme()
-                    
-                    # 检查是否需要切换到暗色模式
-                    if (current_hour_minute == self.dark_time and 
-                        current_theme == 'light'):
-                        self.execute_auto_theme_toggle()
-                        self.last_auto_switch_minute = current_minute_key
-                    
-                    # 检查是否需要切换到浅色模式
-                    elif (current_hour_minute == self.light_time and 
-                          current_theme == 'dark'):
-                        self.execute_auto_theme_toggle()
-                        self.last_auto_switch_minute = current_minute_key
-        except Exception as e:
-            print(f"定时检查器错误: {e}")
-        
-        # 每60秒检查一次
-        self.root.after(60000, self.schedule_checker)
-    
+            dark_time_obj = now.replace(hour=int(self.dark_time.split(':')[0]), minute=int(self.dark_time.split(':')[1]), second=0, microsecond=0)
+            light_time_obj = now.replace(hour=int(self.light_time.split(':')[0]), minute=int(self.light_time.split(':')[1]), second=0, microsecond=0)
+        except (ValueError, IndexError):
+            print("错误：时间格式不正确。")
+            return
+
+        # 4. 构建今天和明天的候选事件列表
+        events_today = []
+        if dark_time_obj > now:
+            events_today.append(dark_time_obj)
+        if light_time_obj > now:
+            events_today.append(light_time_obj)
+
+        # 5. 确定下一个事件的时间点
+        if events_today:
+            # 如果今天还有任务
+            next_event_time = min(events_today)
+        else:
+            # 如果今天的任务都已过，则计算明天的第一个任务
+            # timedelta(days=1) 用于获取明天的时间对象
+            from datetime import timedelta
+            tomorrow_dark = dark_time_obj + timedelta(days=1)
+            tomorrow_light = light_time_obj + timedelta(days=1)
+            next_event_time = min(tomorrow_dark, tomorrow_light)
+
+        # 6. 计算总剩余秒数
+        delay_seconds = (next_event_time - now).total_seconds()
+
+        # 7. 实现"渐进式逼近"逻辑阶梯，确定下一次检查的间隔
+        if delay_seconds <= 1:
+            # 已到或即将到点，立即执行
+            self.run_scheduled_task()
+            return
+        elif delay_seconds <= 10:
+            # 10秒内，每秒检查一次
+            next_check_interval = 1
+        elif delay_seconds <= 60:
+            # 1分钟内，每10秒检查一次
+            next_check_interval = 10
+        elif delay_seconds <= 600:
+            # 10分钟内，每分钟检查一次
+            next_check_interval = 60
+        elif delay_seconds <= 3600:
+            # 1小时内，每10分钟检查一次
+            next_check_interval = 600
+        else:
+            # 超过1小时，检查间隔为剩余时间的一半，但最长不超过1小时(3600秒)
+            next_check_interval = min(delay_seconds / 2, 3600)
+            
+        # 8. 设置下一次调度计时器
+        delay_ms = int(next_check_interval * 1000)
+        self.schedule_timer_id = self.root.after(delay_ms, self.schedule_next_event)
+
+
+    def run_scheduled_task(self):
+        """
+        被计时器唤醒时调用的最终执行方法。
+        负责执行切换并立即重新安排下一个事件。
+        """
+        # 执行自动切换（此方法已在v1.6.1中实现，会自动判断是否重启资源管理器）
+        self.execute_auto_theme_toggle()
+
+        # 关键步骤：任务完成后，立即重新启动调度，安排下一个事件
+        # 增加一个小的延迟，确保状态更新完毕
+        self.root.after(1000, self.schedule_next_event)
+
     def execute_auto_theme_toggle(self):
         """执行自动主题切换（智能判断是否重启资源管理器）"""
         try:
